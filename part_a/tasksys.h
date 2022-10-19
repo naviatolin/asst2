@@ -38,7 +38,8 @@ class TaskSystemParallelSpawn: public ITaskSystem {
     private:
         int n_threads;
         std::thread* workers;
-        void dowork(IRunnable* runnable, int block_num, int num_total_tasks);
+        void block(IRunnable* runnable, int block_num, int num_total_tasks);
+        void interleaved(IRunnable* runnable, int thread_num, int num_total_tasks);
 };
 
 /*

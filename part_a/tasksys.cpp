@@ -59,8 +59,7 @@ TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(n
 
 TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
 
-void TaskSystemParallelSpawn::dowork(IRunnable* runnable, int block_num, int num_total_tasks) {
-    // int task_id = n_threads * block_num + std::this_thread::get_id();
+void TaskSystemParallelSpawn::block(IRunnable* runnable, int block_num, int num_total_tasks) {
     int mintask = n_threads * block_num;
     int maxtask = mintask + n_threads;
     for(int i =mintask; i < maxtask; i++) {
@@ -68,38 +67,27 @@ void TaskSystemParallelSpawn::dowork(IRunnable* runnable, int block_num, int num
     }
 }
 
+void TaskSystemParallelSpawn::interleaved(IRunnable* runnable, int thread_num, int num_total_tasks) {
+    int mintask = thread_num;
+    int maxtask = num_total_tasks;
+    for(int i =mintask; i < num_total_tasks; i+=n_threads) {
+        runnable->runTask(i, num_total_tasks);
+    }
+}
+
 void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
-
-
     //
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
-    //
-
-    // interleaved assignment gives not ok
-    // workers = new std::thread[num_total_tasks];
-    // for (int i = 0; i < num_total_tasks; i+=n_threads) {
-    //     for (int j = i; j < i + n_threads; j++) {
-    //         workers[j] = std::thread(&IRunnable::runTask, runnable, j, num_total_tasks);
-    //     }
-    //     for (int j = i; j < i + n_threads; j++) {
-    //         workers[j].join();
-    //     }
-    // }
-    
-    // blocked assignment
+    //    
     workers = new std::thread[n_threads];
-    int n_blocks = num_total_tasks/n_threads;
-    for (int i = 0; i < n_blocks; i++) {
-        workers[i] = std::thread(&TaskSystemParallelSpawn::dowork, this, runnable, i, num_total_tasks);
+    for (int i = 0; i < n_threads; i++) {
+        workers[i] = std::thread(&TaskSystemParallelSpawn::interleaved, this, runnable, i, num_total_tasks);
     }
-    for (int i = 0; i < n_blocks; i++) {
+    for (int i = 0; i < n_threads; i++) {
         workers[i].join();
     }
-    // for (int i = 0; i < num_total_tasks; i++) {
-    //     runnable->runTask(i, num_total_tasks);
-    // }
 }
 
 TaskID TaskSystemParallelSpawn::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
