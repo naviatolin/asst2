@@ -1,6 +1,6 @@
 #include "tasksys.h"
 #include <thread>
-
+#include <mutex>
 
 IRunnable::~IRunnable() {}
 
@@ -55,6 +55,8 @@ TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads): ITaskSystem(n
     // (requiring changes to tasksys.h).
     //
     n_threads = num_threads;
+    workers = new std::thread[n_threads];
+    key = new std::mutex;
 }
 
 TaskSystemParallelSpawn::~TaskSystemParallelSpawn() {}
@@ -69,9 +71,20 @@ void TaskSystemParallelSpawn::block(IRunnable* runnable, int block_num, int num_
 
 void TaskSystemParallelSpawn::interleaved(IRunnable* runnable, int thread_num, int num_total_tasks) {
     int mintask = thread_num;
-    int maxtask = num_total_tasks;
-    for(int i =mintask; i < num_total_tasks; i+=n_threads) {
+    for(int i = mintask; i < num_total_tasks; i+=n_threads) {
         runnable->runTask(i, num_total_tasks);
+    }
+}
+
+void TaskSystemParallelSpawn::dynamic(IRunnable* runnable, int* counter, int num_total_tasks) {
+    int local_ctr = -1 ;
+    while(local_ctr < num_total_tasks) {
+        key->lock();
+        local_ctr = *counter;
+        *counter += 1;
+        key->unlock();
+        if (local_ctr >= num_total_tasks) break;
+        runnable->runTask(local_ctr, num_total_tasks);
     }
 }
 
@@ -81,9 +94,19 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //    
-    workers = new std::thread[n_threads];
+
+    // interleaved assignment - gives OK for all
+    // except ping_pong tests
+    // workers = new std::thread[n_threads];
+    // for (int i = 0; i < n_threads; i++) {
+    //     workers[i] = std::thread(&TaskSystemParallelSpawn::interleaved, this, runnable, i, num_total_tasks);
+    // }
+    // for (int i = 0; i < n_threads; i++) {
+    //     workers[i].join();
+    // }
+    int counter = 0;
     for (int i = 0; i < n_threads; i++) {
-        workers[i] = std::thread(&TaskSystemParallelSpawn::interleaved, this, runnable, i, num_total_tasks);
+        workers[i] = std::thread(&TaskSystemParallelSpawn::dynamic, this, runnable, &counter, num_total_tasks);
     }
     for (int i = 0; i < n_threads; i++) {
         workers[i].join();
@@ -118,7 +141,9 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     //
 }
 
-TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {}
+TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+}
+
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
 
@@ -128,10 +153,10 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-
     for (int i = 0; i < num_total_tasks; i++) {
         runnable->runTask(i, num_total_tasks);
     }
+
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
