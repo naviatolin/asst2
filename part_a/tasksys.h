@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <mutex>
 #include <thread>
+#include <numeric>
 
 #include <stdio.h>
 
@@ -62,6 +63,14 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+    private:
+        int _num_threads_;
+        int _num_total_tasks_;
+        IRunnable* _runnable_;
+        std::thread* workers;
+        std::mutex* mutex;
+        bool* worker_state;
+        void dynamicSpinningWorker(IRunnable* runnable, int num_total_tasks, int *counter, bool* worker_state, int thread_id);
 };
 
 /*
