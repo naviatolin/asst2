@@ -113,22 +113,25 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
 }
 
 void TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker(int thread_id) {
-    int local_ctr = -1 ;
     for(;;){
-        while(local_ctr < _num_total_tasks_) {
-            mutex->lock();
-            local_ctr = counter;
-            counter += 1;
+      mutex->lock();
+      if (join_threads == false){
+          mutex->unlock();
+          return;
+      }
+      if (counter < _num_total_tasks_) {
+        int local_ctr = counter;
+        counter += 1;
+          if (counter >= _num_total_tasks_) {
             mutex->unlock();
-            if (local_ctr >= _num_total_tasks_) break;
-            _runnable_->runTask(local_ctr, _num_total_tasks_);
-        }
-        mutex->lock();
-        worker_state[thread_id] = true;
-        mutex->unlock();
-        if (join_threads = false){
-            return;
-        }
+            break;
+          }
+          mutex->unlock();
+          _runnable_->runTask(local_ctr, _num_total_tasks_);
+      }
+      mutex->lock();
+      worker_state[thread_id] = true;
+      mutex->unlock();
     }
 }
 
@@ -143,7 +146,7 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 
     _runnable_ = nullptr;
     _num_total_tasks_ = -1;
-    std::fill(worker_state[0], worker_state[0] + _num_threads_, false);
+    std::fill(worker_state, worker_state + _num_threads_, false);
 
     // start the thread pools
     for (int i = 0; i < _num_threads_; i++) {
@@ -152,6 +155,9 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+    mutex->lock();
+    join_threads = true;
+    mutex->unlock();
     for (int i = 0; i < _num_threads_; i++) {
         workers[i].join();
     }
@@ -173,19 +179,16 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
     for (;;) {
         mutex->lock();
         all_true = std::accumulate(worker_state, worker_state + 8, 0);
-        mutex->unlock();
 
         if (all_true == 8 && counter >= _num_total_tasks_) {
+            mutex->unlock();
             break;
         }
         else {
+            mutex->unlock();
             continue;
         }
     }
-
-    mutex->lock();
-    join_threads = true;
-    mutex->unlock();
     return;
 }
 
