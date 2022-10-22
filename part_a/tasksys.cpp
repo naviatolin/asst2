@@ -1,6 +1,9 @@
 #include "tasksys.h"
 #include <thread>
 #include <mutex>
+#include <condition_variable>
+#include <iostream>
+
 
 IRunnable::~IRunnable() {}
 
@@ -97,7 +100,6 @@ void TaskSystemParallelSpawn::run(IRunnable* runnable, int num_total_tasks) {
 
     // interleaved assignment - gives OK for all
     // except ping_pong tests
-    // workers = new std::thread[n_threads];
     // for (int i = 0; i < n_threads; i++) {
     //     workers[i] = std::thread(&TaskSystemParallelSpawn::interleaved, this, runnable, i, num_total_tasks);
     // }
@@ -127,7 +129,6 @@ void TaskSystemParallelSpawn::sync() {
  * Parallel Thread Pool Spinning Task System Implementation
  * ================================================================
  */
-
 const char* TaskSystemParallelThreadPoolSpinning::name() {
     return "Parallel + Thread Pool + Spin";
 }
@@ -139,24 +140,71 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
     // Implementations are free to add new class member variables
     // (requiring changes to tasksys.h).
     //
+    int ctr = 0;
+    n_threads = num_threads;
+    workers = new std::thread[n_threads];
+    counter = &ctr;
+    new_run = false;
+    for (int i = 0; i < n_threads; i++) {
+        workers[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::work, this);
+    }
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+    
+    key.lock();
+    kill = true;
+    key.unlock();
+    mutex_condition.notify_all();
+    for (int i = 0; i < n_threads; i++) {
+        workers[i].join();
+    }
+    delete[] workers;    
+    key.~mutex();
+    mutex_condition.~condition_variable();
 }
 
+void TaskSystemParallelThreadPoolSpinning::work() {
+    int local_ctr = -1;
+    while(1) {
+        {   
+            std::unique_lock<std::mutex> lock(key);
+            mutex_condition.wait(lock, [this]{return new_run || kill;});
+            local_ctr = *counter;
+            *counter += 1;
+            if (kill) return;
+            if (local_ctr < _num_total_tasks) job->runTask(local_ctr, _num_total_tasks);
+            else new_run = false;
+        }
+    }
+}
+
+// we cant put a break statement in dynamic() cause 
+// then the thread will stop spinning. we need some
+// bool to signal it to stop. 
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
-
-
     //
     // TODO: CS149 students will modify the implementation of this
     // method in Part A.  The implementation provided below runs all
     // tasks sequentially on the calling thread.
     //
-    for (int i = 0; i < num_total_tasks; i++) {
-        runnable->runTask(i, num_total_tasks);
+    int ctr = 0;
+    key.lock();
+    job = runnable;
+    new_run = true;
+    _num_total_tasks = num_total_tasks;
+    counter = &ctr;
+    key.unlock();
+    mutex_condition.notify_all();
+    while(1) {
+        key.lock();
+        if (*counter >= num_total_tasks) {
+            key.unlock();
+            return;
+        }
+        key.unlock();
     }
-
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
