@@ -5,7 +5,7 @@
 #include <mutex>
 #include <thread>
 #include <numeric>
-#include <algorithm>
+#include <atomic>
 
 #include <stdio.h>
 
@@ -73,7 +73,7 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         bool* worker_state;
         bool join_threads;
         int counter;
-        void dynamicSpinningWorker(IRunnable* runnable, int num_total_tasks, int *counter, bool* worker_state, int thread_id);
+        void dynamicSpinningWorker(int thread_id);
 };
 
 /*
