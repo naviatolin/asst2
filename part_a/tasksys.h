@@ -6,6 +6,8 @@
 #include <thread>
 #include <numeric>
 #include <atomic>
+#include <iostream>
+#include <vector>
 
 #include <stdio.h>
 
@@ -73,6 +75,9 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
         std::mutex* mutex = new std::mutex;
         bool join_threads = false;
         int counter = 0;
+
+        int done_threads = 0;
+        std::vector<bool> thread_status;
         void dynamicSpinningWorker(int thread_id);
 };
 
