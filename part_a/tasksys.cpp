@@ -113,25 +113,27 @@ void TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker(int thread_id) 
     int local_counter = -1;
     for (;;) {
       mutex->lock();
-      if (counter < _num_total_tasks_){
-        counter += 1;
+      if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
         local_counter = counter;
-        _runnable_->runTask(local_counter, _num_total_tasks_);
+        counter += 1;
         mutex->unlock();
-
-        if (thread_status[thread_id] == false){
-          thread_status[thread_id] = true;
-          mutex->unlock();
-        }
+        _runnable_->runTask(local_counter, _num_total_tasks_);
+      }
+      else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
+        done_threads--;
+        mutex->unlock();
+        thread_status[thread_id] = true;
+        continue;
+      }
+      else if (thread_status[thread_id] == true && counter >= _num_total_tasks_) {
+        done_threads++;
+        mutex->unlock();
+        thread_status[thread_id] = false;
       }
       else if (join_threads) {
         mutex->unlock();
         return;
       } 
-      else if (thread_status[thread_id] == true) {
-        thread_status[thread_id] = false;
-        mutex->unlock();
-      }
       else {
         mutex->unlock();
       }
@@ -141,8 +143,10 @@ void TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker(int thread_id) 
 TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
     thread_total_num = num_threads;
     workers = new std::thread[thread_total_num];
+    thread_status = new bool[thread_total_num];
+
     for (int i = 0; i < thread_total_num; i++) {
-      thread_status.push_back(true);
+      thread_status[i] = true;
       workers[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker, this, i);
     }
 }
@@ -157,21 +161,21 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
 
     delete mutex;
     delete[] workers;
+    delete[] thread_status;
 }
 
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
     mutex->lock();
     // restart after setting these variables
-    counter = 0;
     _num_total_tasks_ = num_total_tasks;
     _runnable_ = runnable;
+    counter = 0;
     mutex->unlock();
 
     for (;;) {
         mutex->lock();
-        done_threads = std::count(thread_status.begin(), thread_status.end(), false);
-        if (counter >= num_total_tasks && done_threads == thread_total_num) {
+        if (counter >= num_total_tasks && done_threads >= thread_total_num) {
             mutex->unlock();
             return;
         }
