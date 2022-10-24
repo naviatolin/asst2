@@ -46,9 +46,6 @@ const char* TaskSystemParallelSpawn::name() {
     return "Parallel + Always Spawn";
 }
 
-// Just only added the thread_total_num variable
-// I don't know c++ that well so I am wondering if I can
-// just access num_threads without this assignment.
 TaskSystemParallelSpawn::TaskSystemParallelSpawn(int num_threads)
     : ITaskSystem(num_threads){
     thread_total_num = num_threads;
@@ -113,43 +110,31 @@ const char* TaskSystemParallelThreadPoolSpinning::name() {
 }
 
 void TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker(int thread_id) {
-    for(;;){
+    int local_counter = -1;
+    for (;;) {
       mutex->lock();
-      if (join_threads == false){
-          mutex->unlock();
-          return;
-      }
-      if (counter < _num_total_tasks_) {
-        int local_ctr = counter;
+      if (counter < _num_total_tasks_){
         counter += 1;
-          if (counter >= _num_total_tasks_) {
-            mutex->unlock();
-            break;
-          }
-          mutex->unlock();
-          _runnable_->runTask(local_ctr, _num_total_tasks_);
+        local_counter = counter;
+        mutex->unlock();
+        _runnable_->runTask(local_counter, _num_total_tasks_);
       }
-      mutex->lock();
-      worker_state[thread_id] = true;
-      mutex->unlock();
+      else if (join_threads) {
+        mutex->unlock();
+        return;
+      } 
+      else {
+        mutex->unlock();
+      }
     }
+    return;
 }
 
 TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
-    // Create threads and a mutex
-    _num_threads_ = num_threads;
-    workers = new std::thread[_num_threads_];
-    mutex = new std::mutex;
-    worker_state = new bool[_num_threads_];
-    counter = 0;
-    join_threads = false;
+    thread_total_num = num_threads;
+    workers = new std::thread[thread_total_num];
 
-    _runnable_ = nullptr;
-    _num_total_tasks_ = -1;
-    std::fill(worker_state, worker_state + _num_threads_, false);
-
-    // start the thread pools
-    for (int i = 0; i < _num_threads_; i++) {
+    for (int i = 0; i < thread_total_num; i++) {
         workers[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker, this, i);
     }
 }
@@ -158,36 +143,30 @@ TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
     mutex->lock();
     join_threads = true;
     mutex->unlock();
-    for (int i = 0; i < _num_threads_; i++) {
+    for (int i = 0; i < thread_total_num; i++) {
         workers[i].join();
     }
 
     delete mutex;
     delete[] workers;
-    delete[] worker_state;
 }
 
 
 void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_total_tasks) {
     mutex->lock();
+    // restart after setting these variables
+    counter = 0;
     _num_total_tasks_ = num_total_tasks;
     _runnable_ = runnable;
     mutex->unlock();
 
-    int all_true;
-
     for (;;) {
         mutex->lock();
-        all_true = std::accumulate(worker_state, worker_state + 8, 0);
-
-        if (all_true == 8 && counter >= _num_total_tasks_) {
+        if (counter >= num_total_tasks) {
             mutex->unlock();
             break;
         }
-        else {
-            mutex->unlock();
-            continue;
-        }
+        mutex->unlock();
     }
     return;
 }
