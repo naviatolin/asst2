@@ -116,26 +116,34 @@ void TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker(int thread_id) 
       if (counter < _num_total_tasks_){
         counter += 1;
         local_counter = counter;
-        mutex->unlock();
         _runnable_->runTask(local_counter, _num_total_tasks_);
+        mutex->unlock();
+
+        if (thread_status[thread_id] == false){
+          thread_status[thread_id] = true;
+          mutex->unlock();
+        }
       }
       else if (join_threads) {
         mutex->unlock();
         return;
       } 
+      else if (thread_status[thread_id] == true) {
+        thread_status[thread_id] = false;
+        mutex->unlock();
+      }
       else {
         mutex->unlock();
       }
     }
-    return;
 }
 
 TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int num_threads): ITaskSystem(num_threads) {
     thread_total_num = num_threads;
     workers = new std::thread[thread_total_num];
-
     for (int i = 0; i < thread_total_num; i++) {
-        workers[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker, this, i);
+      thread_status.push_back(true);
+      workers[i] = std::thread(&TaskSystemParallelThreadPoolSpinning::dynamicSpinningWorker, this, i);
     }
 }
 
@@ -162,13 +170,13 @@ void TaskSystemParallelThreadPoolSpinning::run(IRunnable* runnable, int num_tota
 
     for (;;) {
         mutex->lock();
-        if (counter >= num_total_tasks) {
+        done_threads = std::count(thread_status.begin(), thread_status.end(), false);
+        if (counter >= num_total_tasks && done_threads == thread_total_num) {
             mutex->unlock();
-            break;
+            return;
         }
         mutex->unlock();
     }
-    return;
 }
 
 TaskID TaskSystemParallelThreadPoolSpinning::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
