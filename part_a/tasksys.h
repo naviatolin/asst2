@@ -55,6 +55,7 @@ class TaskSystemParallelSpawn: public ITaskSystem {
  * thread pool. See definition of ITaskSystem in itasksys.h for
  * documentation of the ITaskSystem interface.
  */
+
 class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
     public:
         TaskSystemParallelThreadPoolSpinning(int num_threads);
@@ -65,14 +66,13 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
                                 const std::vector<TaskID>& deps);
         void sync();
     private:
-        int _num_threads_;
-        int _num_total_tasks_;
-        IRunnable* _runnable_;
+        int thread_total_num;
+        int _num_total_tasks_ = -1;
+        IRunnable* _runnable_ = nullptr;
         std::thread* workers;
-        std::mutex* mutex;
-        bool* worker_state;
-        bool join_threads;
-        int counter;
+        std::mutex* mutex = new std::mutex;
+        bool join_threads = false;
+        int counter = 0;
         void dynamicSpinningWorker(int thread_id);
 };
 
