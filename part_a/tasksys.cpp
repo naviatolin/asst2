@@ -204,42 +204,48 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 
 void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) {
     int local_counter = -1;
-    bool tasks_done = false;
+    bool tasks_left = true;
     for (;;) {
       std::unique_lock<std::mutex> lock(*mutex);
-      tasks_done = (counter < _num_total_tasks_);
+      tasks_left = (counter < _num_total_tasks_);
       worker_condition->wait(lock, [&](){
-        return tasks_done || join_threads;
+        return tasks_left || join_threads;
       });
-      if (!tasks_done && thread_status[thread_id] == true){
+
+      // logic to join thread
+      if (thread_status[thread_id] == false) {
+        if (done_threads == thread_total_num) {
+          lock.unlock();
+          run_condition->notify_one();
+        }
+        else if (join_threads) {
+          lock.unlock();
+          return;
+        }
+      }
+
+      if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
         local_counter = counter;
         counter += 1;
         lock.unlock();
         _runnable_->runTask(local_counter, _num_total_tasks_);
         lock.lock();
       }
-      else if (thread_status[thread_id] == false && !tasks_done) {
+      else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
         done_threads--;
-        lock.unlock();
         thread_status[thread_id] = true;
         continue;
       }
-      else if (thread_status[thread_id] == true && tasks_done) {
+      else if (thread_status[thread_id] == true && counter >= _num_total_tasks_) {
         done_threads++;
         lock.unlock();
         thread_status[thread_id] = false;
-        if (done_threads == thread_total_num) {
-          run_condition->notify_all();
-        }
       }
-      else if (join_threads) {
-        lock.unlock();
-        return;
-      } 
       else {
         lock.unlock();
       }
-    }
+
+    } 
 }
 
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
@@ -255,7 +261,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     {
-    std::unique_lock<std::mutex> set_variables_lock(*mutex);
+    std::lock_guard<std::mutex> set_variables_lock(*mutex);
     join_threads = true;
     }
     worker_condition->notify_all();
@@ -272,7 +278,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
     {
-    std::unique_lock<std::mutex> set_variables_lock(*mutex);
+    std::lock_guard<std::mutex> set_variables_lock(*mutex);
     _num_total_tasks_ = num_total_tasks;
     _runnable_ = runnable;
     counter = 0;
@@ -280,7 +286,7 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
 
     std::unique_lock<std::mutex> wait_until_done_lock(*mutex);
     worker_condition->notify_all();
-    run_condition->wait(wait_until_done_lock, [this]() {
+    run_condition->wait(wait_until_done_lock, [&]() {
       return counter >= _num_total_tasks_ && done_threads >= thread_total_num;
     });
 }
