@@ -209,62 +209,38 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
     for (;;) {
       std::unique_lock<std::mutex> thread_lock(*mutex);
       worker_condition->wait(thread_lock, [&] {
-        return (counter < _num_total_tasks_ && thread_status[thread_id] == true)
+        return !(counter >= _num_total_tasks_ && thread_status[thread_id] == false)
         || (join_threads);
       });
-      for (;;) {
-        if (counter < _num_total_tasks_) {
-          if (thread_status[thread_id] == true) {
-            local_counter = counter;
-            counter += 1;
-            thread_lock.unlock();
-            _runnable_->runTask(local_counter, _num_total_tasks_);
-            thread_lock.lock();
-          }
-          else {
-            done_threads--;
-            thread_lock.unlock();
-            thread_status[thread_id] = true;
-          }
+      while(!(counter >= _num_total_tasks_ && thread_status[thread_id] == false)){
+        if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
+          local_counter = counter;
+          counter += 1;
+          thread_lock.unlock();
+          _runnable_->runTask(local_counter, _num_total_tasks_);
+          thread_lock.lock();
         }
-        else {
+        else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
+          done_threads--;
+          thread_lock.unlock();
+          thread_status[thread_id] = true;
+          continue;
+        }
+        else if (thread_status[thread_id] == true && counter >= _num_total_tasks_) {
           done_threads++;
           thread_lock.unlock();
           thread_status[thread_id] = false;
           run_condition->notify_one();
           break;
         }
+        else {
+          thread_lock.unlock();
+        }
       }
       if (join_threads) {
         thread_lock.unlock();
         return;
-      }
-    //   if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
-    //     local_counter = counter;
-    //     counter += 1;
-    //     thread_lock.unlock();
-    //     _runnable_->runTask(local_counter, _num_total_tasks_);
-    //     thread_lock.lock();
-    //   }
-    //   else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
-    //     done_threads--;
-    //     thread_lock.unlock();
-    //     thread_status[thread_id] = true;
-    //     continue;
-    //   }
-    //   else if (thread_status[thread_id] == true && counter >= _num_total_tasks_) {
-    //     done_threads++;
-    //     thread_lock.unlock();
-    //     thread_status[thread_id] = false;
-    //     run_condition->notify_one();
-    //   }
-    //   else if (join_threads) {
-    //     thread_lock.unlock();
-    //     return;
-    //   } 
-    //   else {
-    //     thread_lock.unlock();
-    //   }
+      } 
     }
 }
 
