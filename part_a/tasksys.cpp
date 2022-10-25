@@ -152,11 +152,9 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
-    // reason why we are doing this in destructor is that we are making 400 calls to run
     mutex->lock();
     join_threads = true;
     mutex->unlock();
-
     for (int i = 0; i < thread_total_num; i++) {
         workers[i].join();
     }

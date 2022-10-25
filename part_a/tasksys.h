@@ -78,6 +78,7 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 
         int done_threads = 0;
         bool* thread_status;
+        // std::vector<bool> thread_status;
         void dynamicSpinningWorker(int thread_id);
 };
 
