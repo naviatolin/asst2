@@ -209,38 +209,62 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
     for (;;) {
       std::unique_lock<std::mutex> thread_lock(*mutex);
       worker_condition->wait(thread_lock, [&] {
-        return !(counter >= _num_total_tasks_ && thread_status[thread_id] == false)
+        return (counter < _num_total_tasks_ && thread_status[thread_id] == true)
         || (join_threads);
       });
-
-      // std::cerr << "first condition: " << !(counter >= _num_total_tasks_ && thread_status[thread_id] == false) << "second condition: " << join_threads << std::endl;
-
-      if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
-        local_counter = counter;
-        counter += 1;
-        thread_lock.unlock();
-        _runnable_->runTask(local_counter, _num_total_tasks_);
-        thread_lock.lock();
+      for (;;) {
+        if (counter < _num_total_tasks_) {
+          if (thread_status[thread_id] == true) {
+            local_counter = counter;
+            counter += 1;
+            thread_lock.unlock();
+            _runnable_->runTask(local_counter, _num_total_tasks_);
+            thread_lock.lock();
+          }
+          else {
+            done_threads--;
+            thread_lock.unlock();
+            thread_status[thread_id] = true;
+          }
+        }
+        else {
+          done_threads++;
+          thread_lock.unlock();
+          thread_status[thread_id] = false;
+          run_condition->notify_one();
+          break;
+        }
       }
-      else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
-        done_threads--;
-        thread_lock.unlock();
-        thread_status[thread_id] = true;
-        continue;
-      }
-      else if (thread_status[thread_id] == true && counter >= _num_total_tasks_) {
-        done_threads++;
-        thread_lock.unlock();
-        thread_status[thread_id] = false;
-        run_condition->notify_all();
-      }
-      else if (join_threads) {
+      if (join_threads) {
         thread_lock.unlock();
         return;
-      } 
-      else {
-        thread_lock.unlock();
       }
+    //   if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
+    //     local_counter = counter;
+    //     counter += 1;
+    //     thread_lock.unlock();
+    //     _runnable_->runTask(local_counter, _num_total_tasks_);
+    //     thread_lock.lock();
+    //   }
+    //   else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
+    //     done_threads--;
+    //     thread_lock.unlock();
+    //     thread_status[thread_id] = true;
+    //     continue;
+    //   }
+    //   else if (thread_status[thread_id] == true && counter >= _num_total_tasks_) {
+    //     done_threads++;
+    //     thread_lock.unlock();
+    //     thread_status[thread_id] = false;
+    //     run_condition->notify_one();
+    //   }
+    //   else if (join_threads) {
+    //     thread_lock.unlock();
+    //     return;
+    //   } 
+    //   else {
+    //     thread_lock.unlock();
+    //   }
     }
 }
 
@@ -248,7 +272,6 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     thread_total_num = num_threads;
     workers = new std::thread[thread_total_num];
     thread_status = new bool[thread_total_num];
-    done_threads = thread_total_num;
 
     for (int i = 0; i < thread_total_num; i++) {
       thread_status[i] = true;
