@@ -276,13 +276,11 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_tota
       _runnable_ = runnable;
       counter = 0;
     }
-    {
-      std::lock_guard<std::mutex> wait_until_done_lock(*mutex);
-      worker_condition->notify_all();
-      run_condition->wait(wait_until_done_lock, [&] {
-        return counter >= _num_total_tasks_ && done_threads >= thread_total_num;
-      }); return;
-    }
+    std::lock_guard<std::mutex> wait_until_done_lock(*mutex);
+    worker_condition->notify_all();
+    run_condition->wait(wait_until_done_lock, [&] {
+      return counter >= _num_total_tasks_ && done_threads >= thread_total_num;
+    }); return;
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
