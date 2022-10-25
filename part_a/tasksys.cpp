@@ -254,7 +254,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     {
-      std::lock_guard<std::mutex> set_variables_lock(*mutex);
+      std::unique_lock<std::mutex> set_variables_lock(*mutex);
       join_threads = true;
     }
     worker_condition->notify_all();
@@ -271,7 +271,7 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
     {
-      std::lock_guard<std::mutex> set_variables_lock(*mutex);
+      std::unique_lock<std::mutex> set_variables_lock(*mutex);
       _num_total_tasks_ = num_total_tasks;
       _runnable_ = runnable;
       counter = 0;
