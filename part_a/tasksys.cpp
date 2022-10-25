@@ -231,6 +231,7 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
           thread_lock.unlock();
           thread_status[thread_id] = false;
           run_condition->notify_one();
+          std::cout << "Broke out of while loop" << std::endl;
           break;
         }
         else {
