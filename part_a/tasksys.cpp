@@ -222,7 +222,6 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
         }
         else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
           done_threads--;
-          // thread_lock.unlock();
           thread_status[thread_id] = true;
           continue;
         }
@@ -235,7 +234,6 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
         }
       }
       if (join_threads) {
-        // thread_lock.unlock();
         return;
       } 
     }
