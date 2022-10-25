@@ -152,9 +152,11 @@ TaskSystemParallelThreadPoolSpinning::TaskSystemParallelThreadPoolSpinning(int n
 }
 
 TaskSystemParallelThreadPoolSpinning::~TaskSystemParallelThreadPoolSpinning() {
+    // reason why we are doing this in destructor is that we are making 400 calls to run
     mutex->lock();
     join_threads = true;
     mutex->unlock();
+
     for (int i = 0; i < thread_total_num; i++) {
         workers[i].join();
     }
@@ -204,54 +206,47 @@ const char* TaskSystemParallelThreadPoolSleeping::name() {
 
 void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) {
     int local_counter = -1;
-    bool tasks_left = true;
     for (;;) {
-      std::unique_lock<std::mutex> lock(*mutex);
-      tasks_left = (counter < _num_total_tasks_);
-      worker_condition->wait(lock, [&](){
-        return tasks_left || join_threads;
+      std::unique_lock<std::mutex> thread_lock(*mutex);
+      worker_condition->wait(thread_lock, [&] {
+        return !(counter >= _num_total_tasks_ && thread_status[thread_id] == false)
+        || (join_threads);
       });
-
-      // logic to join thread
-      if (thread_status[thread_id] == false) {
-        if (done_threads == thread_total_num) {
-          lock.unlock();
-          run_condition->notify_one();
-        }
-        else if (join_threads) {
-          lock.unlock();
-          return;
-        }
-      }
 
       if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
         local_counter = counter;
         counter += 1;
-        lock.unlock();
+        thread_lock.unlock();
         _runnable_->runTask(local_counter, _num_total_tasks_);
-        lock.lock();
+        thread_lock.lock();
       }
       else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
         done_threads--;
+        thread_lock.unlock();
         thread_status[thread_id] = true;
         continue;
       }
       else if (thread_status[thread_id] == true && counter >= _num_total_tasks_) {
         done_threads++;
-        lock.unlock();
+        thread_lock.unlock();
         thread_status[thread_id] = false;
+        run_condition->notify_all();
       }
+      else if (join_threads) {
+        thread_lock.unlock();
+        return;
+      } 
       else {
-        lock.unlock();
+        thread_lock.unlock();
       }
-
-    } 
+    }
 }
 
 TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int num_threads): ITaskSystem(num_threads) {
     thread_total_num = num_threads;
     workers = new std::thread[thread_total_num];
     thread_status = new bool[thread_total_num];
+    done_threads = thread_total_num;
 
     for (int i = 0; i < thread_total_num; i++) {
       thread_status[i] = true;
@@ -261,8 +256,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     {
-    std::lock_guard<std::mutex> set_variables_lock(*mutex);
-    join_threads = true;
+      std::lock_guard<std::mutex> set_variables_lock(*mutex);
+      join_threads = true;
     }
     worker_condition->notify_all();
     for (int i = 0; i < thread_total_num; i++) {
@@ -278,17 +273,17 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
     {
-    std::lock_guard<std::mutex> set_variables_lock(*mutex);
-    _num_total_tasks_ = num_total_tasks;
-    _runnable_ = runnable;
-    counter = 0;
+      std::lock_guard<std::mutex> set_variables_lock(*mutex);
+      _num_total_tasks_ = num_total_tasks;
+      _runnable_ = runnable;
+      counter = 0;
     }
 
     std::unique_lock<std::mutex> wait_until_done_lock(*mutex);
     worker_condition->notify_all();
-    run_condition->wait(wait_until_done_lock, [&]() {
+    run_condition->wait(wait_until_done_lock, [&] {
       return counter >= _num_total_tasks_ && done_threads >= thread_total_num;
-    });
+    }); return;
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
