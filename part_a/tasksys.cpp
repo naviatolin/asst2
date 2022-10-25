@@ -209,8 +209,7 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
     for (;;) {
       std::unique_lock<std::mutex> thread_lock(*mutex);
       worker_condition->wait(thread_lock, [&] {
-        return !(counter >= _num_total_tasks_ && thread_status[thread_id] == false)
-        || (join_threads);
+        return !(counter >= _num_total_tasks_ && thread_status[thread_id] == false) || (join_threads);
       });
 
       if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
