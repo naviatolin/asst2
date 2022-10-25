@@ -254,7 +254,7 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
     {
-      std::unique_lock<std::mutex> set_variables_lock(*mutex);
+      std::lock_guard<std::mutex> set_variables_lock(*mutex);
       join_threads = true;
     }
     worker_condition->notify_all();
@@ -271,17 +271,18 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping() {
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable* runnable, int num_total_tasks) {
     {
-      std::unique_lock<std::mutex> set_variables_lock(*mutex);
+      std::lock_guard<std::mutex> set_variables_lock(*mutex);
       _num_total_tasks_ = num_total_tasks;
       _runnable_ = runnable;
       counter = 0;
     }
-
-    std::unique_lock<std::mutex> wait_until_done_lock(*mutex);
-    worker_condition->notify_all();
-    run_condition->wait(wait_until_done_lock, [&] {
-      return counter >= _num_total_tasks_ && done_threads >= thread_total_num;
-    }); return;
+    {
+      std::lock_guard<std::mutex> wait_until_done_lock(*mutex);
+      worker_condition->notify_all();
+      run_condition->wait(wait_until_done_lock, [&] {
+        return counter >= _num_total_tasks_ && done_threads >= thread_total_num;
+      }); return;
+    }
 }
 
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
