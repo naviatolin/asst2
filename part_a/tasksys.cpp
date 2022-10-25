@@ -211,8 +211,8 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
       worker_condition->wait(thread_lock, [&] {
         return !(counter >= _num_total_tasks_ && thread_status[thread_id] == false) || (join_threads);
       });
-      
-      std::cout << "first condition: " << !(counter >= _num_total_tasks_ && thread_status[thread_id] == false) << "second condition: " << join_threads << std::endl;
+
+      std::cerr << "first condition: " << !(counter >= _num_total_tasks_ && thread_status[thread_id] == false) << "second condition: " << join_threads << std::endl;
 
       if (counter < _num_total_tasks_ && thread_status[thread_id] == true){
         local_counter = counter;
