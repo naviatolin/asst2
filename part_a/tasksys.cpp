@@ -222,7 +222,7 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
         }
         else if (thread_status[thread_id] == false && counter < _num_total_tasks_) {
           done_threads--;
-          thread_lock.unlock();
+          // thread_lock.unlock();
           thread_status[thread_id] = true;
           continue;
         }
@@ -231,14 +231,11 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) 
           thread_lock.unlock();
           thread_status[thread_id] = false;
           run_condition->notify_one();
-          std::cout << "Broke out of while loop" << std::endl;
           break;
-        }
-        else {
-          thread_lock.unlock();
         }
       }
       if (join_threads) {
+          std::cout << "Broke out of while loop" << std::endl;
         thread_lock.unlock();
         return;
       } 
