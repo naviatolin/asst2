@@ -1,6 +1,20 @@
 #ifndef _TASKSYS_H
 #define _TASKSYS_H
 
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <numeric>
+#include <atomic>
+#include <iostream>
+#include <vector>
+
+// testing this now
+#include <deque>
+#include <map>
+
+#include <stdio.h>
+
 #include "itasksys.h"
 
 /*
@@ -54,6 +68,44 @@ class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
 };
 
 /*
+Task group
+- taskid
+- runnable
+- dep_list
+- complete  -> false
+- launched  -> false
+- num_total_tasks
+- current_task_index -> 0 (needs syncrhonization with a mutex or atomic)
+*/
+class TaskGroup
+{
+
+    public:
+        TaskGroup(
+            TaskID task_id,
+            IRunnable *runnable,
+            int num_total_tasks,
+            const std::vector<TaskID> &dep_list) : dep_list(dep_list),
+                                                   task_id(task_id),
+                                                   runnable(runnable),
+                                                   num_total_tasks(num_total_tasks)
+        {
+        }
+            
+        TaskID task_id;
+        IRunnable *runnable;
+        int num_total_tasks;
+        const std::vector<TaskID> &dep_list;
+        
+        bool complete = false;
+        bool launched = false;
+
+        // needs to be synchronized
+        int current_task_index = 0;
+
+};
+
+/*
  * TaskSystemParallelThreadPoolSleeping: This class is the student's
  * optimized implementation of a parallel task execution engine that uses
  * a thread pool. See definition of ITaskSystem in
@@ -68,6 +120,33 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
                                 const std::vector<TaskID>& deps);
         void sync();
+    
+    private:
+        std::condition_variable* work_ready = new std::condition_variable();
+        std::condition_variable* work_done = new std::condition_variable();
+        
+        std::thread* workers;
+
+        std::mutex *work_queue_mutex = new std::mutex;
+
+        /*
+        Task System
+        - Shutdown workers (needs sync)
+        - Task groups
+        - Task queue (needs sync)
+        */
+
+        int thread_total_num;
+        int all_task_groups_done = false;
+        int task_group_incrementer = 0;
+
+        std::map<TaskID, TaskGroup*> task_groups = {};
+        std::deque<TaskGroup*> task_groups_to_complete;
+
+        void dynamicSleepingWorker(int thread_id);
 };
 
 #endif
+
+
+
