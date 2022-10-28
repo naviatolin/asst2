@@ -245,8 +245,10 @@ void TaskSystemParallelThreadPoolSleeping::sync()
                 tasks_complete += 1;
                 continue;
             }
+            
+            int mySize = static_cast<int>(task_groups.size());
 
-            if (tasks_complete == task_groups.size()){
+            if (tasks_complete == mySize){
                 all_task_groups_complete = true;
                 return;
             }
