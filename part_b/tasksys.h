@@ -122,12 +122,15 @@ class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
         void sync();
     
     private:
+        // work ready is for worker threads to wake up
         std::condition_variable* work_ready = new std::condition_variable();
+        // work done is for sync to wake up
         std::condition_variable* work_done = new std::condition_variable();
         
         std::thread* workers;
 
         std::mutex *work_queue_mutex = new std::mutex;
+        std::mutex *sync_mutex = new std::mutex;
 
         /*
         Task System
