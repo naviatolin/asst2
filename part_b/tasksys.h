@@ -92,10 +92,10 @@ class TaskGroup
         {
         }
             
+        const std::vector<TaskID> &dep_list;
         TaskID task_id;
         IRunnable *runnable;
         int num_total_tasks;
-        const std::vector<TaskID> &dep_list;
         
         bool complete = false;
         bool launched = false;
