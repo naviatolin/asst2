@@ -160,21 +160,20 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
 
 TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping()
 {
-    std::cout << "deleting" << std::endl;
     {
         std::lock_guard<std::mutex> set_variables_lock(*work_queue_mutex);
         all_task_groups_done = true;
     }
-    work_done->notify_one();
-    work_ready->notify_all();
+    // work_done->notify_one();
+    // work_ready->notify_all();
     for (int i = 0; i < thread_total_num; i++)
     {
         workers[i].join();
     }
-    delete work_queue_mutex;
-    delete[] workers;
-    delete work_ready;
-    delete work_done;
+    // delete work_queue_mutex;
+    // delete[] workers;
+    // delete work_ready;
+    // delete work_done;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable *runnable, int num_total_tasks)
@@ -187,17 +186,16 @@ void TaskSystemParallelThreadPoolSleeping::run(IRunnable *runnable, int num_tota
 TaskID TaskSystemParallelThreadPoolSleeping::runAsyncWithDeps(IRunnable *runnable, int num_total_tasks,
                                                               const std::vector<TaskID> &deps)
 {
-    // This is the main thread so you don't need locks here yet. 
+    // This is the main thread so you don't need locks here yet.
     auto task_id = task_group_incrementer;
 
-    task_group_incrementer += 1;
-
     task_groups[task_id] = new TaskGroup(
-        task_group_incrementer,
+        task_id,
         runnable,
         num_total_tasks,
-        deps
-    );
+        deps);
+
+    task_group_incrementer += 1;
 
     return task_id;
 }
@@ -212,9 +210,9 @@ Main thread
     wait for worker to notify us
 
 Worker
-    Wait for work ready 
+    Wait for work ready
     Wait for work queue mutex to be ready
-    
+
 workers will figure out which task group to work on
 workers will then gfigure which task in task group to complete
 before running the runnable
@@ -227,131 +225,145 @@ void TaskSystemParallelThreadPoolSleeping::sync()
     // Lock the work queue while scan
     // This is okay because we won't lock again until a worker has notified us
     // The waiting reduces lock contention
-    for (;;) {
-        std::unique_lock<std::mutex> lock(*sync_mutex);
+    for (;;)
+    {
+        std::unique_lock<std::mutex> lock(*work_queue_mutex);
         bool all_task_groups_complete = true;
-        // lock.unlock();
-        
+
+        int tasks_complete = 0;
+        int tasks_incompelte = 0;
+
         // https: // stackoverflow.com/questions/26281979/c-loop-through-map
         for (const auto &[task_id, task] : task_groups)
-        {   
-            // lock.lock();
-            if (task->complete) {
-                std::cout << "Sync: \n\tTask ID: " << task->task_id << "Complete" << std::endl;
+        {
+            if (task->complete)
+            {
+                tasks_complete += 1;
                 continue;
-            }  
-            // lock.unlock();
-            
+            }
+            tasks_incompelte += 1;
+
             all_task_groups_complete = false;
-            std::cout << "All Tasks Complete Status: " << all_task_groups_complete << std::endl;
 
             // loop through dependencies to see if they are done
             bool all_deps_ready = true;
+            // std::cout << "Checking dep list. " << task->dep_list.size() << std::endl;
             for (const auto dep_id : task->dep_list)
             {
-                std::cout << "Sync: \n\tDependencies for Current Task: " << task_groups[dep_id]->task_id << std::endl;
-                // lock.lock();
-                if (task_groups[dep_id]->complete) {
+
+                if (task_groups[dep_id]->complete)
+                {
                     continue;
                 }
-                // lock.unlock();
+
                 all_deps_ready = false;
             }
 
             // if all deps ready and not launched, push it into the work queue and mark it launched
-            // lock.lock();
-            if (all_deps_ready && !task->launched) {
-                std::cout << "Sync: \n\tLaunching Task " << task->task_id << std::endl;
+            if (all_deps_ready && !(task->launched))
+            {
+                std::cout << "Launching " << task->task_id << " with deps:  " << task->dep_list.size() << std::endl;
                 task->launched = true;
                 task_groups_to_complete.push_back(task);
-                work_ready->notify_all();
-
             }
-            // lock.unlock();
         }
 
-        std::cout << "Sync: \n\tWaiting on the work to be complete!" << std::endl;
-        // lock.lock();
-        if (!task_groups_to_complete.empty() || !all_task_groups_complete)
+        bool is_queue_empty = task_groups_to_complete.empty();
+        work_queue_mutex->unlock();
+
+        if (all_task_groups_complete)
         {
-            work_done->wait(lock);
-            std::cout << "Sync: \n\tHeard back finding more tasks to do" << std::endl;
-        } 
-        // lock.unlock();
-
-        if (all_task_groups_complete) {
+            std::cout << "returning because all tasks groups completed: " << tasks_complete << "," << tasks_incompelte << std::endl;
             return;
         }
 
-        // lock.lock();
-        if (all_task_groups_done) {
-            return;
+        // if the queue is empty
+        if (is_queue_empty)
+        {
+
+            std::cout << "Sleeping main thread until work is ready. Tasks complete " << tasks_complete << "," << tasks_incompelte << std::endl;
+            std::this_thread::sleep_for(std::chrono::nanoseconds(10));
+            continue;
         }
-        // lock.unlock();
-    } 
+
+        // if (all_task_groups_done)
+        // {
+        //     std::cout << "returning because all tasks groups done" << std::endl;
+        //     return;
+        // }
+    }
 }
 
-void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id) {
+void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id)
+{
     int local_counter = -1;
     // Lock the task queue until you hear from the main thread that there is more work to do
-    for (;;) {
-        std::unique_lock<std::mutex> lock(*work_queue_mutex);
+    for (;;)
+    {
+        std::unique_lock<std::mutex> work_lock(*work_queue_mutex);
+
+        if (all_task_groups_done)
+        {
+            work_lock.unlock();
+            return;
+        }
 
         // *only* wait if there's no work in the queue
         // otherwise, just work on the next task
-        if (task_groups_to_complete.empty() || !all_task_groups_done)
+        if (task_groups_to_complete.empty())
         {
-            std::cout << "Worker " << thread_id << ": \n\tWaiting on main thread to give tasks" << std::endl;
-            work_ready->wait(lock);
-            std::cout << "Worker " << thread_id << ": \n\tMoved past waiting!" << std::endl;
+            // sleep the thread
+            work_lock.unlock();
+            std::this_thread::sleep_for(std::chrono::nanoseconds(10));
+            continue;
         }
 
-        if (all_task_groups_done) {
-            std::cout << "Returning" << std::endl;
-            lock.unlock();
-            return;
-        }
-        // lock.unlock();
-
-        // lock the task queue and read the current
-        // lock.lock();
-        auto task_to_do = task_groups_to_complete.front();
-        // if (task_to_do->complete){
-        //     task_groups_to_complete.pop_front();
-        //     auto task_to_do = task_groups_to_complete.front();
-        // }
-        // lock.unlock();
+        TaskGroup *task_to_do = task_groups_to_complete.front();
 
         // Save the current task
-        // lock.lock();
-        int local_ctr = task_to_do->current_task_index;
+        int id = task_to_do->task_id;
+        int local_ctr = task_to_do->current_task_index.load();
+        bool is_last = local_ctr == (task_to_do->num_total_tasks - 1);
+        int num_total_tasks = task_to_do->num_total_tasks;
+
         task_to_do->current_task_index += 1;
-        // lock.unlock();
 
-        // now that we've finished, mark complete if this was the final task
-        // Also pop it out of the queue
-        // lock.lock();
-        if (local_ctr == task_to_do->num_total_tasks) {
-            std::cout << "Worker " << thread_id << ": \n\tScheduling Task: " << local_ctr << "/" << task_to_do->num_total_tasks << "\n\tFor Task: " << task_to_do->task_id << std::endl;
-            std::cout << "\tJust completed task group : " << task_to_do->task_id << std::endl;
+        // Check if this task is the finale
+        if (is_last)
+        {
+            // if it is, pop it
+            std::cout << "Popping task: " << id << ", thread: " << thread_id << std::endl;
+            if (task_groups_to_complete.empty())
+            {
+                continue;
+            }
+            else
+            {
+                task_groups_to_complete.pop_front();
+            }
+        }
+
+        // Relieve the lock
+        work_lock.unlock();
+
+        // Run the task
+        task_to_do->runnable->runTask(local_ctr, num_total_tasks);
+
+        if (is_last)
+        {
+            // print to cout
+            std::cout << "Finished task  " << id << std::endl;
+            // std::cout << "Thread " << thread_id << " finished task group for task " << id << std::endl;
+
+            work_lock.lock();
             task_to_do->complete = true;
-            task_to_do->runnable->runTask(local_ctr, task_to_do->num_total_tasks);
-            task_groups_to_complete.pop_front();
 
-            // lock.unlock();
-            std::cout << "\tNotifying main thread" << std::endl;
-            work_done->notify_one();
-            
-            // worker_lock.lock();
+            std::cout << "unlock" << std::endl;
+            work_lock.unlock();
         }
-        else {
-            // Run the task
-            std::cout << "Worker " << thread_id << ": \n\tScheduling Task: " << local_ctr << "/" << task_to_do->num_total_tasks << "\n\tFor Task: " << task_to_do->task_id << std::endl;
-            lock.unlock();
-            task_to_do->runnable->runTask(local_ctr, task_to_do->num_total_tasks);
-            lock.lock();
-        }
-        
-        lock.unlock();
+
+        // std::cout << "Finished task  " << id << std::endl;
+        // lock.unlock();
+        // work_done->notify_one();
     }
 }

@@ -22,15 +22,16 @@
  * serial task execution engine.  See definition of ITaskSystem in
  * itasksys.h for documentation of the ITaskSystem interface.
  */
-class TaskSystemSerial: public ITaskSystem {
-    public:
-        TaskSystemSerial(int num_threads);
-        ~TaskSystemSerial();
-        const char* name();
-        void run(IRunnable* runnable, int num_total_tasks);
-        TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
-                                const std::vector<TaskID>& deps);
-        void sync();
+class TaskSystemSerial : public ITaskSystem
+{
+public:
+    TaskSystemSerial(int num_threads);
+    ~TaskSystemSerial();
+    const char *name();
+    void run(IRunnable *runnable, int num_total_tasks);
+    TaskID runAsyncWithDeps(IRunnable *runnable, int num_total_tasks,
+                            const std::vector<TaskID> &deps);
+    void sync();
 };
 
 /*
@@ -39,15 +40,16 @@ class TaskSystemSerial: public ITaskSystem {
  * call.  See definition of ITaskSystem in itasksys.h for documentation
  * of the ITaskSystem interface.
  */
-class TaskSystemParallelSpawn: public ITaskSystem {
-    public:
-        TaskSystemParallelSpawn(int num_threads);
-        ~TaskSystemParallelSpawn();
-        const char* name();
-        void run(IRunnable* runnable, int num_total_tasks);
-        TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
-                                const std::vector<TaskID>& deps);
-        void sync();
+class TaskSystemParallelSpawn : public ITaskSystem
+{
+public:
+    TaskSystemParallelSpawn(int num_threads);
+    ~TaskSystemParallelSpawn();
+    const char *name();
+    void run(IRunnable *runnable, int num_total_tasks);
+    TaskID runAsyncWithDeps(IRunnable *runnable, int num_total_tasks,
+                            const std::vector<TaskID> &deps);
+    void sync();
 };
 
 /*
@@ -56,15 +58,16 @@ class TaskSystemParallelSpawn: public ITaskSystem {
  * thread pool. See definition of ITaskSystem in itasksys.h for
  * documentation of the ITaskSystem interface.
  */
-class TaskSystemParallelThreadPoolSpinning: public ITaskSystem {
-    public:
-        TaskSystemParallelThreadPoolSpinning(int num_threads);
-        ~TaskSystemParallelThreadPoolSpinning();
-        const char* name();
-        void run(IRunnable* runnable, int num_total_tasks);
-        TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
-                                const std::vector<TaskID>& deps);
-        void sync();
+class TaskSystemParallelThreadPoolSpinning : public ITaskSystem
+{
+public:
+    TaskSystemParallelThreadPoolSpinning(int num_threads);
+    ~TaskSystemParallelThreadPoolSpinning();
+    const char *name();
+    void run(IRunnable *runnable, int num_total_tasks);
+    TaskID runAsyncWithDeps(IRunnable *runnable, int num_total_tasks,
+                            const std::vector<TaskID> &deps);
+    void sync();
 };
 
 /*
@@ -80,29 +83,31 @@ Task group
 class TaskGroup
 {
 
-    public:
-        TaskGroup(
-            TaskID task_id,
-            IRunnable *runnable,
-            int num_total_tasks,
-            const std::vector<TaskID> &dep_list) : dep_list(dep_list),
-                                                   task_id(task_id),
-                                                   runnable(runnable),
-                                                   num_total_tasks(num_total_tasks)
-        {
-        }
-            
-        TaskID task_id;
-        IRunnable *runnable;
-        int num_total_tasks;
-        const std::vector<TaskID> &dep_list;
-        
-        bool complete = false;
-        bool launched = false;
+public:
+    TaskGroup(
+        TaskID task_id,
+        IRunnable *runnable,
+        int num_total_tasks,
+        const std::vector<TaskID> &dep_list) : dep_list(dep_list),
+                                               task_id(task_id),
+                                               runnable(runnable),
+                                               num_total_tasks(num_total_tasks)
+    {
+        this->current_task_index = 0;
+        // print to cout the len of deps
+        // std::cout << "TaskGroup: " << task_id << ", " << dep_list.size() << std::endl;
+    }
 
-        // needs to be synchronized
-        int current_task_index = 0;
+    TaskID task_id;
+    IRunnable *runnable;
+    int num_total_tasks;
+    const std::vector<TaskID> dep_list;
 
+    bool complete = false;
+    bool launched = false;
+
+    // needs to be synchronized
+    std::atomic<int> current_task_index;
 };
 
 /*
@@ -111,45 +116,43 @@ class TaskGroup
  * a thread pool. See definition of ITaskSystem in
  * itasksys.h for documentation of the ITaskSystem interface.
  */
-class TaskSystemParallelThreadPoolSleeping: public ITaskSystem {
-    public:
-        TaskSystemParallelThreadPoolSleeping(int num_threads);
-        ~TaskSystemParallelThreadPoolSleeping();
-        const char* name();
-        void run(IRunnable* runnable, int num_total_tasks);
-        TaskID runAsyncWithDeps(IRunnable* runnable, int num_total_tasks,
-                                const std::vector<TaskID>& deps);
-        void sync();
-    
-    private:
-        // work ready is for worker threads to wake up
-        std::condition_variable* work_ready = new std::condition_variable();
-        // work done is for sync to wake up
-        std::condition_variable* work_done = new std::condition_variable();
-        
-        std::thread* workers;
+class TaskSystemParallelThreadPoolSleeping : public ITaskSystem
+{
+public:
+    TaskSystemParallelThreadPoolSleeping(int num_threads);
+    ~TaskSystemParallelThreadPoolSleeping();
+    const char *name();
+    void run(IRunnable *runnable, int num_total_tasks);
+    TaskID runAsyncWithDeps(IRunnable *runnable, int num_total_tasks,
+                            const std::vector<TaskID> &deps);
+    void sync();
 
-        std::mutex *work_queue_mutex = new std::mutex;
-        std::mutex *sync_mutex = new std::mutex;
+private:
+    // work ready is for worker threads to wake up
+    std::condition_variable *work_ready = new std::condition_variable();
+    // work done is for sync to wake up
+    std::condition_variable *work_done = new std::condition_variable();
 
-        /*
-        Task System
-        - Shutdown workers (needs sync)
-        - Task groups
-        - Task queue (needs sync)
-        */
+    std::thread *workers;
 
-        int thread_total_num;
-        int all_task_groups_done = false;
-        int task_group_incrementer = 0;
+    std::mutex *work_queue_mutex = new std::mutex;
+    std::mutex *sync_mutex = new std::mutex;
 
-        std::map<TaskID, TaskGroup*> task_groups = {};
-        std::deque<TaskGroup*> task_groups_to_complete;
+    /*
+    Task System
+    - Shutdown workers (needs sync)
+    - Task groups
+    - Task queue (needs sync)
+    */
 
-        void dynamicSleepingWorker(int thread_id);
+    int thread_total_num;
+    int all_task_groups_done = false;
+    int task_group_incrementer = 0;
+
+    std::map<TaskID, TaskGroup *> task_groups = std::map<TaskID, TaskGroup *>();
+    std::deque<TaskGroup *> task_groups_to_complete = std::deque<TaskGroup *>();
+
+    void dynamicSleepingWorker(int thread_id);
 };
 
 #endif
-
-
-
