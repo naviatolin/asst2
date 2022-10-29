@@ -88,10 +88,10 @@ public:
         TaskID task_id,
         IRunnable *runnable,
         int num_total_tasks,
-        const std::vector<TaskID> &dep_list) : dep_list(dep_list),
-                                               task_id(task_id),
+        const std::vector<TaskID> &dep_list) : task_id(task_id),
                                                runnable(runnable),
-                                               num_total_tasks(num_total_tasks)
+                                               num_total_tasks(num_total_tasks),
+                                               dep_list(dep_list)
     {
         this->current_task_index = 0;
         // print to cout the len of deps
@@ -103,11 +103,18 @@ public:
     int num_total_tasks;
     const std::vector<TaskID> dep_list;
 
-    bool complete = false;
+    std::atomic<int> *tasks_complete = new std::atomic<int>(0);
+    std::atomic<bool> *complete = new std::atomic<bool>(false);
     bool launched = false;
 
     // needs to be synchronized
     std::atomic<int> current_task_index;
+};
+
+struct TaskUnit
+{
+    TaskID task;
+    int task_index;
 };
 
 /*
@@ -149,8 +156,10 @@ private:
     int all_task_groups_done = false;
     int task_group_incrementer = 0;
 
+    bool running = false;
+
     std::map<TaskID, TaskGroup *> task_groups = std::map<TaskID, TaskGroup *>();
-    std::deque<TaskGroup *> task_groups_to_complete = std::deque<TaskGroup *>();
+    std::deque<TaskUnit> tasks_pending = std::deque<TaskUnit>();
 
     void dynamicSleepingWorker(int thread_id);
 };

@@ -152,6 +152,8 @@ TaskSystemParallelThreadPoolSleeping::TaskSystemParallelThreadPoolSleeping(int n
     thread_total_num = num_threads;
     workers = new std::thread[thread_total_num];
 
+    // std::cout << "New threadpool" << thread_total_num << std::endl;
+
     for (int i = 0; i < thread_total_num; i++)
     {
         workers[i] = std::thread(&TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker, this, i);
@@ -170,16 +172,23 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping()
     {
         workers[i].join();
     }
-    // delete work_queue_mutex;
-    // delete[] workers;
-    // delete work_ready;
-    // delete work_done;
+
+    // std::cout << "Goodbye threadpool" << std::endl;
+    delete work_queue_mutex;
+    delete[] workers;
+    delete work_ready;
+    delete work_done;
 }
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable *runnable, int num_total_tasks)
 {
-    runAsyncWithDeps(runnable, num_total_tasks, {});
-    sync();
+    // if (!running)
+    // {
+    //     running = true;
+    //     runAsyncWithDeps(runnable, num_total_tasks, std::vector<TaskID>());
+    //     sync();
+    // }
+
     return;
 }
 
@@ -222,6 +231,18 @@ workers will unlock
 
 void TaskSystemParallelThreadPoolSleeping::sync()
 {
+    // some simple logging code to help debug the graph layouts
+    // std::cout << "you called sync!" << std::endl;
+    // for (const auto [task_id, task] : task_groups)
+    // {
+    //     std::cout << "[" << task->task_id << "](" << task->num_total_tasks << "): ";
+    //     for (const auto dep : task->dep_list)
+    //     {
+    //         std::cout << dep << ", ";
+    //     }
+    //     std::cout << std::endl;
+    // }
+
     // Lock the work queue while scan
     // This is okay because we won't lock again until a worker has notified us
     // The waiting reduces lock contention
@@ -236,7 +257,7 @@ void TaskSystemParallelThreadPoolSleeping::sync()
         // https: // stackoverflow.com/questions/26281979/c-loop-through-map
         for (const auto &[task_id, task] : task_groups)
         {
-            if (task->complete)
+            if (task->complete->load())
             {
                 tasks_complete += 1;
                 continue;
@@ -250,8 +271,7 @@ void TaskSystemParallelThreadPoolSleeping::sync()
             // std::cout << "Checking dep list. " << task->dep_list.size() << std::endl;
             for (const auto dep_id : task->dep_list)
             {
-
-                if (task_groups[dep_id]->complete)
+                if (task_groups[dep_id]->complete->load())
                 {
                     continue;
                 }
@@ -262,45 +282,41 @@ void TaskSystemParallelThreadPoolSleeping::sync()
             // if all deps ready and not launched, push it into the work queue and mark it launched
             if (all_deps_ready && !(task->launched))
             {
-                std::cout << "Launching " << task->task_id << " with deps:  " << task->dep_list.size() << std::endl;
+                // std::cout << "Launching task group" << task->task_id << std::endl;
                 task->launched = true;
-                task_groups_to_complete.push_back(task);
+
+                for (int x = 0; x < task->num_total_tasks; x++)
+                {
+
+                    tasks_pending.push_back(TaskUnit{
+                        task->task_id,
+                        x});
+
+                    work_ready->notify_all();
+                }
             }
         }
 
-        bool is_queue_empty = task_groups_to_complete.empty();
-        work_queue_mutex->unlock();
+        lock.unlock();
+        std::this_thread::sleep_for(std::chrono::nanoseconds(10));
 
         if (all_task_groups_complete)
         {
-            std::cout << "returning because all tasks groups completed: " << tasks_complete << "," << tasks_incompelte << std::endl;
+            all_task_groups_done = true;
+            work_ready->notify_all();
             return;
         }
-
-        // if the queue is empty
-        if (is_queue_empty)
-        {
-
-            std::cout << "Sleeping main thread until work is ready. Tasks complete " << tasks_complete << "," << tasks_incompelte << std::endl;
-            std::this_thread::sleep_for(std::chrono::nanoseconds(10));
-            continue;
-        }
-
-        // if (all_task_groups_done)
-        // {
-        //     std::cout << "returning because all tasks groups done" << std::endl;
-        //     return;
-        // }
     }
 }
 
 void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id)
 {
-    int local_counter = -1;
     // Lock the task queue until you hear from the main thread that there is more work to do
     for (;;)
     {
         std::unique_lock<std::mutex> work_lock(*work_queue_mutex);
+        work_ready->wait(work_lock, [this]
+                         { return !tasks_pending.empty() || all_task_groups_done; });
 
         if (all_task_groups_done)
         {
@@ -308,62 +324,23 @@ void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id)
             return;
         }
 
-        // *only* wait if there's no work in the queue
-        // otherwise, just work on the next task
-        if (task_groups_to_complete.empty())
-        {
-            // sleep the thread
-            work_lock.unlock();
-            std::this_thread::sleep_for(std::chrono::nanoseconds(10));
-            continue;
-        }
+        TaskUnit task_to_do = tasks_pending.front();
+        tasks_pending.pop_front();
 
-        TaskGroup *task_to_do = task_groups_to_complete.front();
-
-        // Save the current task
-        int id = task_to_do->task_id;
-        int local_ctr = task_to_do->current_task_index.load();
-        bool is_last = local_ctr == (task_to_do->num_total_tasks - 1);
-        int num_total_tasks = task_to_do->num_total_tasks;
-
-        task_to_do->current_task_index += 1;
-
-        // Check if this task is the finale
-        if (is_last)
-        {
-            // if it is, pop it
-            std::cout << "Popping task: " << id << ", thread: " << thread_id << std::endl;
-            if (task_groups_to_complete.empty())
-            {
-                continue;
-            }
-            else
-            {
-                task_groups_to_complete.pop_front();
-            }
-        }
-
-        // Relieve the lock
         work_lock.unlock();
 
+        IRunnable *runnable = task_groups[task_to_do.task]->runnable;
+
         // Run the task
-        task_to_do->runnable->runTask(local_ctr, num_total_tasks);
+        runnable->runTask(task_to_do.task_index, task_groups[task_to_do.task]->num_total_tasks);
+        // std::cout << "task done !" << task_to_do.task_index << ", " << task_to_do.task << std::endl;
 
-        if (is_last)
+        task_groups[task_to_do.task]->tasks_complete->fetch_add(1);
+
+        if (task_groups[task_to_do.task]->tasks_complete->load() == task_groups[task_to_do.task]->num_total_tasks)
         {
-            // print to cout
-            std::cout << "Finished task  " << id << std::endl;
-            // std::cout << "Thread " << thread_id << " finished task group for task " << id << std::endl;
 
-            work_lock.lock();
-            task_to_do->complete = true;
-
-            std::cout << "unlock" << std::endl;
-            work_lock.unlock();
+            task_groups[task_to_do.task]->complete->store(true);
         }
-
-        // std::cout << "Finished task  " << id << std::endl;
-        // lock.unlock();
-        // work_done->notify_one();
     }
 }
