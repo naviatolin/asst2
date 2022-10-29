@@ -182,12 +182,12 @@ TaskSystemParallelThreadPoolSleeping::~TaskSystemParallelThreadPoolSleeping()
 
 void TaskSystemParallelThreadPoolSleeping::run(IRunnable *runnable, int num_total_tasks)
 {
-    // if (!running)
-    // {
-    //     running = true;
-    //     runAsyncWithDeps(runnable, num_total_tasks, std::vector<TaskID>());
-    //     sync();
-    // }
+    if (!running)
+    {
+        running = true;
+        runAsyncWithDeps(runnable, num_total_tasks, std::vector<TaskID>());
+        sync();
+    }
 
     return;
 }
@@ -312,6 +312,7 @@ void TaskSystemParallelThreadPoolSleeping::sync()
 void TaskSystemParallelThreadPoolSleeping::dynamicSleepingWorker(int thread_id)
 {
     // Lock the task queue until you hear from the main thread that there is more work to do
+    // Pop out just a simple little unit of work
     for (;;)
     {
         std::unique_lock<std::mutex> work_lock(*work_queue_mutex);
